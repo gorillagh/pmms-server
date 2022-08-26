@@ -5,5 +5,5 @@ node_modules/
 .vscode/
 .vscode/settings.json
 
-config/fbServiceAccountKey.json
-config/firebaseServiceAccountKey.json
+# config/fbServiceAccountKey.json
+# config/firebaseServiceAccountKey.json
