@@ -1,0 +1,9 @@
+node_modules
+node_modules/
+.env
+
+.vscode/
+.vscode/settings.json
+
+config/fbServiceAccountKey.json
+config/firebaseServiceAccountKey.json
