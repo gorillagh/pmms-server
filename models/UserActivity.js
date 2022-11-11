@@ -25,6 +25,8 @@ const UserActivitySchema = new mongoose.Schema(
 
     transactions: [
       {
+        reference: String,
+        id: String,
         pocket: { type: String, maxlength: [32, "Too long"], default: "all" },
         time: { type: Date, default: Date.now },
         activityType: {

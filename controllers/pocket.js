@@ -4,6 +4,8 @@ const UserPocketGroup = require("../models/UserPocketGroup");
 const slugify = require("slugify");
 const UserActivity = require("../models/UserActivity");
 const currency = require("currency.js");
+const https = require("https");
+const axios = require("axios");
 
 exports.create = async (req, res) => {
   try {
@@ -229,11 +231,11 @@ exports.getPocketActivities = async (req, res) => {
 
   try {
     const userActivities = await UserActivity.findOne({ userId: id }).exec();
-    console.log("Activities---->", userActivities);
+    // console.log("Activities---->", userActivities);
     let activities = [];
     await userActivities.events.map((e) => {
       if (e.pocket === slug) activities.push(e);
-      console.log(e.pocket);
+      // console.log(e.pocket);
     });
     await userActivities.transactions.map((p) => {
       if (p.pocket === slug) activities.push(p);
@@ -333,69 +335,94 @@ exports.createUserPocket = async (req, res) => {
 exports.addMoney = async (req, res) => {
   try {
     const transaction = await req.body;
-    transaction.amount = currency(transaction.amount).value;
-    const { id } = await req.params;
-    const userPockets = await UserPocketGroup.findOne({
-      userId: id,
-    }).exec();
-    const userActivities = await UserActivity.findOne({
-      userId: id,
-    }).exec();
 
-    if (transaction.destination === "spread") {
-      await userPockets.pockets.map((p) => {
-        if (p.amount) {
-          p.amount = currency(
-            p.amount + (p.percentage / 100) * transaction.amount
-          ).value;
-        } else {
-          p.amount = currency((p.percentage / 100) * transaction.amount).value;
-        }
-        userActivities.transactions.push({
-          pocket: p.slug,
-          activityType: "money added",
-          details: `You added GHS ${
-            currency((p.percentage / 100) * transaction.amount).value
-          } to your ${p.title} pocket`,
-          status: "success",
-        });
-      });
-      userActivities.transactions.push({
-        activityType: "money added",
-        details: `You added GHS ${transaction.amount} to be spread on all pockets`,
-        status: "success",
-      });
-    } else {
-      await userPockets.pockets.some((p) => {
-        if (transaction.destination === p.slug) {
+    const verifiedTransaction = await axios.get(
+      `https://api.paystack.co/transaction/verify/${transaction.response.reference}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYSTACk_TEST_SECRET_KEY}`,
+        },
+      }
+    );
+
+    console.log("Transaction verification---->", verifiedTransaction.data);
+
+    if (
+      verifiedTransaction &&
+      verifiedTransaction.data.data.status === "success"
+    ) {
+      transaction.amount = currency(
+        verifiedTransaction.data.data.amount / 100
+      ).value;
+      const { id } = await req.params;
+      const userPockets = await UserPocketGroup.findOne({
+        userId: id,
+      }).exec();
+      const userActivities = await UserActivity.findOne({
+        userId: id,
+      }).exec();
+
+      if (transaction.destination === "spread") {
+        await userPockets.pockets.map((p) => {
           if (p.amount) {
-            p.amount = currency(p.amount + transaction.amount).value;
+            p.amount = currency(
+              p.amount + (p.percentage / 100) * transaction.amount
+            ).value;
           } else {
-            p.amount = transaction.amount;
+            p.amount = currency(
+              (p.percentage / 100) * transaction.amount
+            ).value;
           }
           userActivities.transactions.push({
+            reference: verifiedTransaction.data.data.reference,
+            id: verifiedTransaction.data.data.id,
             pocket: p.slug,
             activityType: "money added",
-            details: `You added GHS ${transaction.amount} to your "${p.title}" pocket`,
+            details: `You added GHS ${
+              currency((p.percentage / 100) * transaction.amount).value
+            } to your ${p.title} pocket`,
             status: "success",
           });
-        }
-      });
+        });
+        // userActivities.transactions.push({
+        //   activityType: "money added",
+        //   details: `You added GHS ${transaction.amount} to be spread on all pockets`,
+        //   status: "success",
+        // });
+      } else {
+        await userPockets.pockets.some((p) => {
+          if (transaction.destination === p.slug) {
+            if (p.amount) {
+              p.amount = currency(p.amount + transaction.amount).value;
+            } else {
+              p.amount = transaction.amount;
+            }
+            userActivities.transactions.push({
+              reference: verifiedTransaction.data.data.reference,
+              id: verifiedTransaction.data.data.id,
+              pocket: p.slug,
+              activityType: "money added",
+              details: `You added GHS ${transaction.amount} to your "${p.title}" pocket`,
+              status: "success",
+            });
+          }
+        });
+      }
+      const updatedPocketGroup = await UserPocketGroup.findOneAndUpdate(
+        { userId: id },
+        { pockets: userPockets.pockets },
+        { new: true }
+      ).exec();
+      res.json(updatedPocketGroup);
+      await UserActivity.findOneAndUpdate(
+        { userId: id },
+        {
+          events: userActivities.events,
+          transactions: userActivities.transactions,
+        },
+        { new: true }
+      ).exec();
     }
-    const updatedPocketGroup = await UserPocketGroup.findOneAndUpdate(
-      { userId: id },
-      { pockets: userPockets.pockets },
-      { new: true }
-    ).exec();
-    res.json(updatedPocketGroup);
-    await UserActivity.findOneAndUpdate(
-      { userId: id },
-      {
-        events: userActivities.events,
-        transactions: userActivities.transactions,
-      },
-      { new: true }
-    ).exec();
   } catch (error) {
     console.log(error);
     res.json({ error: { message: error.message } });
